@@ -1,0 +1,259 @@
+package peaacore.asm;
+
+import java.util.List;
+
+import moze_intel.projecte.gameObjs.blocks.CondenserMK2;
+import moze_intel.projecte.gameObjs.blocks.MatterFurnace;
+import moze_intel.projecte.gameObjs.blocks.Relay;
+import moze_intel.projecte.gameObjs.entity.EntityLavaProjectile;
+import net.minecraft.block.Block;
+import net.minecraft.entity.Entity;
+import net.minecraft.launchwrapper.IClassTransformer;
+
+import org.objectweb.asm.*;
+
+import peaa.gameObjs.tiles.CondenserMK2TilePEAA;
+import scala.actors.threadpool.Arrays;
+import cpw.mods.fml.common.asm.transformers.deobf.FMLDeobfuscatingRemapper;
+import cpw.mods.fml.common.registry.GameRegistry;
+import cpw.mods.fml.relauncher.FMLLaunchHandler;
+
+public class PEAACoreTransformer implements IClassTransformer, Opcodes
+{
+	private static final String TARGETCLASSNAME = "moze_intel.projecte.gameObjs.entity.EntityWaterProjectile";
+	private static final String TARGETCLASSNAME2 = "moze_intel.projecte.gameObjs.tiles.RMFurnaceTile";
+	private static final String TARGETCLASSNAME3 = "moze_intel.projecte.gameObjs.ObjHandler";
+	private static final String TARGETCLASSNAME4 = "moze_intel.projecte.gameObjs.tiles.DMFurnaceTile";
+
+
+
+	@Override
+	public byte[] transform(String name, String transformedName, byte[] basicClass) {
+		if (!FMLLaunchHandler.side().isClient()) {return basicClass;}
+		if(!TARGETCLASSNAME.equals(transformedName) && !TARGETCLASSNAME2.equals(transformedName)
+				&& !TARGETCLASSNAME3.equals(transformedName) && !TARGETCLASSNAME4.equals(transformedName)) {return basicClass;}
+
+		try {
+			PEAACoreCorePlugin.logger.info("-------------------------Start PEAACore Transform--------------------------");
+			ClassReader cr = new ClassReader(basicClass);
+			ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+			cr.accept(new CustomVisitor(name, cw), 8);
+			basicClass = cw.toByteArray();
+			PEAACoreCorePlugin.logger.info("-------------------------Finish PEAACore Transform-------------------------");
+		} catch (Exception e) {
+			throw new RuntimeException("failed : PEAACoreTransformer loading", e);
+		}
+		return basicClass;
+	}
+
+	class CustomVisitor extends ClassVisitor
+	{
+		String owner;
+		String transformedName;
+		public CustomVisitor(String owner, ClassVisitor cv)
+		{
+			super(Opcodes.ASM4, cv);
+			this.owner = owner;
+		}
+
+		static final String targetMethodName = "<clinit>";		//ObjHandler
+		static final String targetMethodName2 = "register";		//ObjHandler
+		static final String targetMethodName3 = "<init>";
+
+
+		/**
+		 * 別の名前をreturnすることで強引に書き換えている。
+		 */
+		@Override
+		public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+			/* この書き方を一応とっておいているだけ
+			 * if (targetMethodName2.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))) {
+				MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+				PEAACoreCorePlugin.logger.info("Transform [pushToInventories] Method");
+				changePushToInventories(mv);
+				return super.visitMethod(access, "pusuToInventories01", desc, signature, exceptions);
+
+			}*/
+			if (targetMethodName.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))) {
+				PEAACoreCorePlugin.logger.info("Start [clinit] Transform");
+				return new CustomMethodVisitor(this.api, super.visitMethod(access, name, desc, signature, exceptions));
+
+			}
+			if (targetMethodName2.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))) {
+				PEAACoreCorePlugin.logger.info("Add TileEntity [Mk2PEAA]");
+				PEAACoreCorePlugin.logger.info("Add Entity [EntityWarterProjectilePEAA]");
+				PEAACoreCorePlugin.logger.info("Add TileEntity [RMFurnaceTilePEAA]");
+				return new CustomMethodVisitor2(this.api, super.visitMethod(access, name, desc, signature, exceptions));
+
+			}
+			// DMかまどの extends するTileEntityを変更する処理其の2
+			if (targetMethodName3.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))) {
+				PEAACoreCorePlugin.logger.info("Transform extends [RMFurnaceTilePEAA]");
+				return new CustomMethodVisitor3(this.api, super.visitMethod(access, name, desc, signature, exceptions));
+
+			}
+			return super.visitMethod(access, name, desc, signature, exceptions);
+		}
+
+
+		String DMTileName = "moze_intel/projecte/gameObjs/tiles/DMFurnaceTile";
+		/**
+		 * DMかまどの extends するTileEntityを変更する処理其の1
+		 * @param version
+		 * @param access
+		 * @param name
+		 * @param signature
+		 * @param superName
+		 * @param interfaces
+		 */
+		@Override
+		public void visit(int version, int access, String name, String signature,
+	            String superName, String[] interfaces) {
+			if (name.equals(DMTileName)) {
+				super.visit(version, access, name, signature, "peaa/gameObjs/tiles/RMFurnaceTilePEAA", interfaces);
+				return;
+			}
+
+			super.visit(version, access, name, signature, superName, interfaces);
+		}
+
+		/*
+		public void changePushToInventories(MethodVisitor mv) {
+
+		}*/
+	}
+
+	/**
+	 * [clinit]
+	 * ObjHanlderの
+	 * public static Block condenserMk2 = new CondenserMK2();
+	 * を
+	 * public static Block condenserMk2 = new CondenserMK2PEAA();
+	 * に変更
+	 *
+	 * MatterFurnace から MatterFurnacePEAA
+	 *
+	 */
+	class CustomMethodVisitor extends MethodVisitor {
+		static final String targetFieldName = "condenserMk2";
+		static final String targetFieldName2 = "rmFurnaceOff";
+		static final String targetFieldName3 = "rmFurnaceOn";
+		static final String targetFieldName4 = "everTide";
+
+		public CustomMethodVisitor(int api, MethodVisitor mv) {
+            super(api, mv);
+        }
+
+		@Override
+		public void visitFieldInsn(int opcode, String owner, String name, String desc) {
+			if (targetFieldName.equals(name)) {
+				PEAACoreCorePlugin.logger.info("Start [condenserMk2] Transform");
+				mv.visitTypeInsn(NEW, "peaa/gameObjs/blocks/CondenserMK2PEAA");
+				mv.visitInsn(DUP);
+				mv.visitMethodInsn(INVOKESPECIAL, "peaa/gameObjs/blocks/CondenserMK2PEAA", "<init>", "()V", false);
+
+			}
+			if (targetFieldName2.equals(name)) {
+				PEAACoreCorePlugin.logger.info("Start [MatterFurnace_Off] Transform");
+				mv.visitTypeInsn(NEW, "peaa/gameObjs/blocks/MatterFurnacePEAA");
+				mv.visitInsn(DUP);
+				mv.visitInsn(ICONST_0);
+				mv.visitInsn(ICONST_1);
+				mv.visitMethodInsn(INVOKESPECIAL, "peaa/gameObjs/blocks/MatterFurnacePEAA", "<init>", "(ZZ)V", false);
+
+			}
+			// RMTilePEAAに変更
+			if (targetFieldName3.equals(name)) {
+				PEAACoreCorePlugin.logger.info("Start [MatterFurnace_On] Transform");
+				mv.visitTypeInsn(NEW, "peaa/gameObjs/blocks/MatterFurnacePEAA");
+				mv.visitInsn(DUP);
+				mv.visitInsn(ICONST_1);
+				mv.visitInsn(ICONST_1);
+				mv.visitMethodInsn(INVOKESPECIAL, "peaa/gameObjs/blocks/MatterFurnacePEAA", "<init>", "(ZZ)V", false);
+
+			}
+			// EvertideAmuletPEAAに変更
+			if (targetFieldName4.equals(name)) {
+				PEAACoreCorePlugin.logger.info("Start [MatterFurnace_On] Transform");
+				mv.visitTypeInsn(NEW, "peaa/gameObjs/items/EvertideAmuletPEAA");
+				mv.visitInsn(DUP);
+				mv.visitMethodInsn(INVOKESPECIAL, "peaa/gameObjs/items/EvertideAmuletPEAA", "<init>", "()V", false);
+
+			}
+
+			super.visitFieldInsn(opcode, owner, name, desc);
+		}
+	}
+
+	/**
+	 * [register]
+	 * ObjHandlerに
+	 * 		GameRegistry.registerTileEntity(CondenserMK2TilePEAA.class, "CondenserMK2 Tile  PEAA");
+	 * を追加
+	 *
+	 * 変更PEAAにする
+	 * mv.visitLdcInsn(Type.getType("Lpeaa/gameObjs/entity/EntityWaterProjectilePEAA;"));
+	 */
+	class CustomMethodVisitor2 extends MethodVisitor {
+		public CustomMethodVisitor2(int api, MethodVisitor mv) {
+            super(api, mv);
+        }
+
+		@Override
+		public void visitCode() {
+			super.visitCode();
+			// ここから追加処理
+			// add MK2Tile
+			mv.visitLdcInsn(Type.getType("Lpeaa/gameObjs/tiles/CondenserMK2TilePEAA;"));
+			mv.visitLdcInsn("CondenserMK2 Tile  PEAA");
+			mv.visitMethodInsn(INVOKESTATIC, "cpw/mods/fml/common/registry/GameRegistry", "registerTileEntity", "(Ljava/lang/Class;Ljava/lang/String;)V", false);
+
+			// add RMFurnaceTilePEAA
+			mv.visitLdcInsn(Type.getType("Lpeaa/gameObjs/tiles/RMFurnaceTilePEAA;"));
+			mv.visitLdcInsn("RM Furnace Tile PEAA");
+			mv.visitMethodInsn(INVOKESTATIC, "cpw/mods/fml/common/registry/GameRegistry", "registerTileEntity", "(Ljava/lang/Class;Ljava/lang/String;)V", false);
+
+			// add EntityWaterProjectilePEAA
+			mv.visitLdcInsn(Type.getType("Lpeaa/gameObjs/entity/EntityWaterProjectilePEAA;"));
+			mv.visitLdcInsn("Water Water PEAA");
+			mv.visitIntInsn(BIPUSH, 10);
+			mv.visitFieldInsn(GETSTATIC, "moze_intel/projecte/PECore", "instance", "Lmoze_intel/projecte/PECore;");
+			mv.visitIntInsn(SIPUSH, 256);
+			mv.visitIntInsn(BIPUSH, 10);
+			mv.visitInsn(ICONST_1);
+			mv.visitMethodInsn(INVOKESTATIC, "cpw/mods/fml/common/registry/EntityRegistry", "registerModEntity", "(Ljava/lang/Class;Ljava/lang/String;ILjava/lang/Object;IIZ)V", false);
+		}
+
+		@Override
+		public void visitLdcInsn(Object cst) {
+			if (Type.getType("Lmoze_intel/projecte/gameObjs/entity/EntityWaterProjectile;").equals(cst)) {
+				mv.visitLdcInsn(Type.getType("Lpeaa/gameObjs/entity/EntityWaterProjectilePEAA;"));
+				return;
+			}
+			super.visitLdcInsn(cst);
+		}
+	}
+
+	/**
+	 * mv.visitMethodInsn(INVOKESPECIAL, "moze_intel/projecte/gameObjs/tiles/RMFurnaceTile", "<init>", "()V", false);
+	 * マターかまどの変更処理
+	 */
+	class CustomMethodVisitor3 extends MethodVisitor {
+		static final String targetVisitMethodInsnName = "moze_intel/projecte/gameObjs/tiles/RMFurnaceTile";
+
+		public CustomMethodVisitor3(int api, MethodVisitor mv) {
+            super(api, mv);
+        }
+
+		@Override
+		public void visitMethodInsn(int opcode, String owner, String name,
+	            String desc, boolean itf) {
+			if (owner.equals(targetVisitMethodInsnName)) {
+				super.visitMethodInsn(opcode, "peaa/gameObjs/tiles/RMFurnaceTilePEAA", name, desc, itf);
+				return;
+			}
+			super.visitMethodInsn(opcode, owner, name, desc, itf);
+
+		}
+	}
+}
