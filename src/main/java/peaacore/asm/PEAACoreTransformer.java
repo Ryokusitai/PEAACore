@@ -29,7 +29,7 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 
 	@Override
 	public byte[] transform(String name, String transformedName, byte[] basicClass) {
-		if (!FMLLaunchHandler.side().isClient()) {return basicClass;}
+		//if (!FMLLaunchHandler.side().isClient()) {return basicClass;}
 		if(!TARGETCLASSNAME.equals(transformedName) && !TARGETCLASSNAME2.equals(transformedName)
 				&& !TARGETCLASSNAME3.equals(transformedName) && !TARGETCLASSNAME4.equals(transformedName)) {return basicClass;}
 
