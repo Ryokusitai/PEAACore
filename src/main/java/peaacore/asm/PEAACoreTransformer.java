@@ -6,6 +6,7 @@ import moze_intel.projecte.gameObjs.blocks.CondenserMK2;
 import moze_intel.projecte.gameObjs.blocks.MatterFurnace;
 import moze_intel.projecte.gameObjs.blocks.Relay;
 import moze_intel.projecte.gameObjs.entity.EntityLavaProjectile;
+import moze_intel.projecte.utils.Constants;
 import net.minecraft.block.Block;
 import net.minecraft.entity.Entity;
 import net.minecraft.launchwrapper.IClassTransformer;
@@ -24,6 +25,7 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 	private static final String TARGETCLASSNAME2 = "moze_intel.projecte.gameObjs.tiles.RMFurnaceTile";
 	private static final String TARGETCLASSNAME3 = "moze_intel.projecte.gameObjs.ObjHandler";
 	private static final String TARGETCLASSNAME4 = "moze_intel.projecte.gameObjs.tiles.DMFurnaceTile";
+	private static final String TARGETCLASSNAME5 = "moze_intel.projecte.gameObjs.tiles.CondenserTile";
 
 
 
@@ -31,13 +33,14 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 	public byte[] transform(String name, String transformedName, byte[] basicClass) {
 		//if (!FMLLaunchHandler.side().isClient()) {return basicClass;}
 		if(!TARGETCLASSNAME.equals(transformedName) && !TARGETCLASSNAME2.equals(transformedName)
-				&& !TARGETCLASSNAME3.equals(transformedName) && !TARGETCLASSNAME4.equals(transformedName)) {return basicClass;}
+				&& !TARGETCLASSNAME3.equals(transformedName) && !TARGETCLASSNAME4.equals(transformedName)
+					&& !TARGETCLASSNAME5.equals(transformedName)) {return basicClass;}
 
 		try {
 			PEAACoreCorePlugin.logger.info("-------------------------Start PEAACore Transform--------------------------");
 			ClassReader cr = new ClassReader(basicClass);
 			ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-			cr.accept(new CustomVisitor(name, cw), 8);
+			cr.accept(new CustomVisitor(name, cw, transformedName), 8);
 			basicClass = cw.toByteArray();
 			PEAACoreCorePlugin.logger.info("-------------------------Finish PEAACore Transform-------------------------");
 		} catch (Exception e) {
@@ -50,15 +53,17 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 	{
 		String owner;
 		String transformedName;
-		public CustomVisitor(String owner, ClassVisitor cv)
+		public CustomVisitor(String owner, ClassVisitor cv, String transformedName)
 		{
 			super(Opcodes.ASM4, cv);
 			this.owner = owner;
+			this.transformedName = transformedName;
 		}
 
 		static final String targetMethodName = "<clinit>";		//ObjHandler
 		static final String targetMethodName2 = "register";		//ObjHandler
-		static final String targetMethodName3 = "<init>";
+		static final String targetMethodName3 = "<init>";		// DMFurnace TileEntity
+		static final String targetMethodName4 = "getProgressScaled";	// CondenserTile
 
 
 		/**
@@ -90,6 +95,13 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 			if (targetMethodName3.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))) {
 				PEAACoreCorePlugin.logger.info("Transform extends [RMFurnaceTilePEAA]");
 				return new CustomMethodVisitor3(this.api, super.visitMethod(access, name, desc, signature, exceptions));
+
+			}
+			// コンデンサーのプログレスバー表示の修正
+			if (targetMethodName4.equals(FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(owner, name, desc))
+					&& transformedName.equals(TARGETCLASSNAME5)) {
+				PEAACoreCorePlugin.logger.info("Transform extends [CondenserTile]");
+				return new CustomMethodVisitor4(this.api, super.visitMethod(access, name, desc, signature, exceptions));
 
 			}
 			return super.visitMethod(access, name, desc, signature, exceptions);
@@ -254,6 +266,46 @@ public class PEAACoreTransformer implements IClassTransformer, Opcodes
 			}
 			super.visitMethodInsn(opcode, owner, name, desc, itf);
 
+		}
+	}
+
+	/**
+	 * コンデンサーのプログレスバーの表示が上手くいかない問題の修正
+	 * とはいってもLongのキャストを挟むだけ(数が22億くらいを超えてintの上限を突破しているのが原因なので)
+	 *
+	 * return (displayEmc * Constants.MAX_CONDENSER_PROGRESS) / requiredEmc;
+	 * から
+	 * return (int)( ((long)displayEmc * Constants.MAX_CONDENSER_PROGRESS) / requiredEmc);
+	 * にするだけ
+	 */
+	class CustomMethodVisitor4 extends MethodVisitor {
+		static final String targetVisitMethodInsnName = "moze_intel/projecte/gameObjs/tiles/RMFurnaceTile";
+		int count = 0;
+
+		public CustomMethodVisitor4(int api, MethodVisitor mv) {
+            super(api, mv);
+        }
+
+		/**
+		 * 書き換えたい visitInsnは3つめ
+		 */
+		public void visitInsn(int opcode) {
+			if (opcode == IRETURN)
+				count++;
+
+			if (count == 3) {
+				mv.visitVarInsn(ALOAD, 0);
+				mv.visitFieldInsn(GETFIELD, "moze_intel/projecte/gameObjs/tiles/CondenserTile", "displayEmc", "I");
+				mv.visitInsn(I2L);
+				mv.visitLdcInsn(new Long(102L));
+				mv.visitInsn(LMUL);
+				mv.visitVarInsn(ALOAD, 0);
+				mv.visitFieldInsn(GETFIELD, "moze_intel/projecte/gameObjs/tiles/CondenserTile", "requiredEmc", "I");
+				mv.visitInsn(I2L);
+				mv.visitInsn(LDIV);
+				mv.visitInsn(L2I);
+			}
+			super.visitInsn(opcode);
 		}
 	}
 }
